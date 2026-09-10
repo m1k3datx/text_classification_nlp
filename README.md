@@ -30,7 +30,9 @@ holds out 20% of the labeled data, and performs five-fold stratified
 cross-validation on the training split. It writes:
 
 - `outputs/model_comparison.csv`: cross-validation mean/std and holdout
-  accuracy, balanced accuracy, macro F1, and ROC AUC for each model.
+  accuracy, balanced accuracy, macro F1, and ROC AUC for each model. The
+  selected model is marked with `selected_by_cv`; holdout scores are never used
+  for model selection. The `dummy_majority` row is a majority-class baseline.
 - `outputs/classification_reports.json`: per-class precision, recall, F1, and
   support for each model.
 
@@ -51,19 +53,29 @@ English stop-word list, so no NLTK downloads are required.
 
 ## Methodology and limitations
 
-The train/test split is stratified and seeded. TF-IDF vocabulary fitting and
-random undersampling occur inside each cross-validation fold and never use the
-holdout set. The default undersampling option addresses the original class
+The normalized text is deduplicated before the stratified train/test split;
+rows with the same normalized text but conflicting labels are excluded. This
+prevents duplicate articles from crossing the holdout or cross-validation
+folds. TF-IDF vocabulary fitting and random undersampling occur inside each
+cross-validation fold and never use the holdout set. Models are selected by
+cross-validated macro F1 on the training split, then evaluated on the untouched
+holdout. The default undersampling option addresses the original class
 imbalance only in training; use `--no-undersampling` to compare against the
 original distribution. Sparse TF-IDF matrices are kept sparse throughout.
 
 The bundled data is a historical, manually labeled news sample and may not
 represent current news or production class prevalence. A single random
-holdout is not a substitute for temporal validation, and reported metrics are
-only produced when the script is run locally. The project does not claim a
-production-ready model or guarantee that the labels are free of annotation
-noise.
+holdout is not a substitute for temporal validation, and the metrics in this
+README are **preliminary until the workflow is rerun**. Results are sensitive
+to normalization, deduplication, class imbalance, and annotation noise; this
+is not a production-ready model.
+
+See [data/README.md](data/README.md) for dataset provenance, labeling, and
+usage notes. The repository's MIT license applies to the code in this
+repository; it does not grant rights to third-party news text or other
+dataset contents.
 
 ## License
 
-MIT; see [LICENSE](LICENSE).
+MIT for the repository code; see [LICENSE](LICENSE). Third-party dataset
+content remains subject to its own rights and terms.

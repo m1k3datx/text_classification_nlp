@@ -19,6 +19,7 @@ from imblearn.pipeline import Pipeline
 from imblearn.under_sampling import RandomUnderSampler
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
+from sklearn.dummy import DummyClassifier
 from sklearn.metrics import (
     accuracy_score,
     balanced_accuracy_score,
@@ -39,7 +40,8 @@ TOKEN_PATTERN = re.compile(r"[a-z]+")
 
 def clean_text(text: str) -> str:
     """Normalize article text without requiring a downloaded NLP corpus."""
-    text = html.unescape(str(text)).lower().replace("</br>", " ")
+    text = html.unescape(str(text)).lower()
+    text = re.sub(r"<br\s*/?>|</br>", " ", text)
     tokens = TOKEN_PATTERN.findall(text)
     return " ".join(token for token in tokens if token not in ENGLISH_STOP_WORDS)
 
@@ -55,14 +57,19 @@ def load_dataset(path: Path) -> pd.DataFrame:
     data["text"] = data["text"].map(clean_text)
     data = data[data["text"].str.len() > 0].copy()
     data["relevance"] = data["relevance"].map({"no": 0, "yes": 1}).astype(int)
+    # Identical normalized articles must not be allowed to cross a split.
+    # Conflicting labels are removed rather than assigned arbitrarily.
+    conflicting = data.groupby("text")["relevance"].transform("nunique") > 1
+    data = data.loc[~conflicting].drop_duplicates(subset=["text"], keep="first")
     return data[["text", "relevance"]]
 
 
-def build_models(seed: int, max_features: int, undersample: bool) -> dict[str, Pipeline]:
+def build_models(seed: int, max_features: int, undersample: bool) -> dict[str, Any]:
     """Create pipelines so every learned preprocessing step stays in the fold."""
     vectorizer = TfidfVectorizer(max_features=max_features, ngram_range=(1, 2))
     sampler: Any = RandomUnderSampler(random_state=seed) if undersample else "passthrough"
     return {
+        "dummy_majority": DummyClassifier(strategy="most_frequent"),
         "logistic_regression": Pipeline(
             [
                 ("tfidf", vectorizer),
@@ -132,13 +139,15 @@ def run(args: argparse.Namespace) -> pd.DataFrame:
     results: list[dict[str, Any]] = []
     reports: dict[str, Any] = {}
 
-    for name, model in build_models(args.seed, args.max_features, args.undersample).items():
+    models = build_models(args.seed, args.max_features, args.undersample)
+    for name, model in models.items():
         cv_scores = cross_validate(model, x_train, y_train, cv=cv, scoring=scoring, n_jobs=args.jobs)
         model.fit(x_train, y_train)
         test_metrics, report = score_model(model, x_test, y_test)
         results.append(
             {
                 "model": name,
+                "selected_by_cv": False,
                 **{f"cv_{metric}_mean": cv_scores[f"test_{metric}"].mean() for metric in scoring},
                 **{f"cv_{metric}_std": cv_scores[f"test_{metric}"].std() for metric in scoring},
                 **{f"test_{metric}": value for metric, value in test_metrics.items()},
@@ -146,7 +155,9 @@ def run(args: argparse.Namespace) -> pd.DataFrame:
         )
         reports[name] = report
 
-    comparison = pd.DataFrame(results).sort_values("test_f1_macro", ascending=False)
+    comparison = pd.DataFrame(results).sort_values("cv_f1_macro_mean", ascending=False)
+    comparison.loc[comparison.index[0], "selected_by_cv"] = True
+    selected_name = str(comparison.iloc[0]["model"])
     args.output_dir.mkdir(parents=True, exist_ok=True)
     comparison.to_csv(args.output_dir / "model_comparison.csv", index=False)
     (args.output_dir / "classification_reports.json").write_text(
@@ -155,7 +166,9 @@ def run(args: argparse.Namespace) -> pd.DataFrame:
 
     print(f"Loaded {len(data):,} labeled articles from {args.data}")
     print(f"Train/test split: {len(x_train):,}/{len(x_test):,} (seed={args.seed})")
-    print(comparison[["model", "cv_f1_macro_mean", "test_f1_macro", "test_roc_auc"]].to_string(index=False))
+    print(comparison[["model", "selected_by_cv", "cv_f1_macro_mean", "test_accuracy",
+                      "test_balanced_accuracy", "test_f1_macro", "test_roc_auc"]].to_string(index=False))
+    print(f"Selected by CV (holdout not used for selection): {selected_name}")
     print(f"Reports written to {args.output_dir}")
     return comparison
 
