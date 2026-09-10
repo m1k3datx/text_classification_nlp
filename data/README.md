@@ -4,7 +4,12 @@
 `US-Economic-News.csv` is a historical sample of news articles with
 manually assigned `relevance` labels (`yes`, `no`, or `not sure`). The workflow
 excludes `not sure` rows because the task is binary classification. The file
-is third-party content, not original project code.
+is third-party content, not original project code. Its schema and annotation
+metadata identify it as the community-circulated **US Economic News**
+CrowdFlower relevance task dataset; one public copy is available at
+https://github.com/thechatbotguy/nlpdatasets/blob/main/US-Economic-News.csv.
+That link is recorded as provenance for this copy, not as a claim that the
+repository owns the underlying articles or annotation data.
 
 The repository does not assert ownership of the article text, guarantee that
 the source publisher permits redistribution, or provide a license for the
